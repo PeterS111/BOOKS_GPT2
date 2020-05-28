@@ -1,3 +1,7 @@
+## Note
+
+This repository is copied from:
+https://github.com/priya-dwivedi/Deep-Learning/tree/master/GPT2-HarryPotter-Training
 
 ## Language model fine-tuning
 
