@@ -21,6 +21,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import argparse
 import logging
 from tqdm import trange
+from datetime import datetime
+import os
 
 import torch
 import torch.nn.functional as F
@@ -74,6 +76,7 @@ def set_seed(args):
     torch.manual_seed(args.seed)
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
+
 
 
 def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
@@ -245,13 +248,52 @@ def main():
             device=args.device,
         )
         out = out[:, len(context_tokens):].tolist()
+        
+        
+        if not os.path.exists("outputs"):
+            os.mkdir("outputs")
+
+
+        write_path = "outputs/"
+        gen_file = '{:%Y_%m_%d_%H_%M_%S}_{}'.format(datetime.utcnow(), str(args.model_type))
+        
+        complete_path = write_path + gen_file + ".txt"
+        complete_path = write_path + gen_file + "_len_" + str(args.length) + "_seed_"+ str(args.seed) + ".txt"
+        complete_log_path = write_path + gen_file + "_logs.txt"
+        
+        
+        ## writing log file:
+        
+        # f = open(complete_log_path, "w", encoding="utf-8")
+        details_string = ("model_name: " + str(args.model_type) + "," + " seed:" + str(args.seed) + "," + " samples:" + 
+        str(args.num_samples) + "," + " length:" + str(args.length) + "," + " temperature:" + 
+        str(args.temperature) + "," + " top_k:" + str(args.top_k) + "," + " top_p:" + str(args.top_p) + "," + 
+        " raw_text: " + raw_text + "\n")
+        # f.write(details_string)
+        # f.close()
+        
+        ## CHANGES PS:
+        
+        counter = 0
         for o in out:
             text = tokenizer.decode(o, clean_up_tokenization_spaces=True)
             text = text[: text.find(args.stop_token) if args.stop_token else None]
 
-            # print(text)
+            ## print(text)
             print("=" * 80 + "\n")
-            print(raw_text + text)
+            print(raw_text + text + "\n")
+            
+            counter += 1
+
+            ## write text to file
+            f = open(complete_path, "a", encoding="utf-8")
+            ## f.write( "$$$$$" + " SAMPLE " + str(counter) + " " + "=" * 40 + "\n")
+            f.write( "$$$$$ " + details_string + "\n")
+           
+            f.write(raw_text + text + "\n")          
+            ## f.write("=" * 90 + "\n")
+            f.close()
+            
 
         if args.prompt:
             break
