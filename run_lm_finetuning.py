@@ -29,6 +29,7 @@ import pickle
 import random
 import re
 import shutil
+import time
 
 import numpy as np
 import torch
@@ -236,13 +237,14 @@ def train(args, train_dataset, model, tokenizer):
         global_step = int(args.model_name_or_path.split('-')[-1].split('/')[0])
         epochs_trained = global_step // (len(train_dataloader) // args.gradient_accumulation_steps)
         steps_trained_in_current_epoch = global_step % (len(train_dataloader) // args.gradient_accumulation_steps)
-
+        
         logger.info("  Continuing training from checkpoint, will skip to saved global_step")
         logger.info("  Continuing training from epoch %d", epochs_trained)
         logger.info("  Continuing training from global step %d", global_step)
         logger.info("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
 
     tr_loss, logging_loss = 0.0, 0.0
+    start_time = time.time()
 
     model_to_resize = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
     model_to_resize.resize_token_embeddings(len(tokenizer))
@@ -263,8 +265,27 @@ def train(args, train_dataset, model, tokenizer):
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
             model.train()
+            
             outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
+
+
+            #########################################################
+            ##-----------------------------------------------------##
+            
+            dd = str(loss)
+            dl = dd.split(",")
+            ds = dl[0]
+            d_str = ds[7:]
+            d_f = float(d_str)
+            e_str = "step: {st} time: {time:2.2f} loss: {ds:2.2f}".format(st=global_step,  ds=d_f, time=time.time() - start_time) 
+            f = open("logs.txt", "a", encoding="utf-8")
+            f.write(e_str + "\n")
+            f.close()
+            
+            ##-----------------------------------------------------##
+            #########################################################
+            
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -291,11 +312,11 @@ def train(args, train_dataset, model, tokenizer):
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
                     if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluate(args, model, tokenizer)
+                        results = evaluate(global_step, args, model, tokenizer)
                         for key, value in results.items():
                             tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
                     tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
-                    tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, global_step)
+                    tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, global_step)                                      
                     logging_loss = tr_loss
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
@@ -330,7 +351,7 @@ def train(args, train_dataset, model, tokenizer):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, prefix=""):
+def evaluate(global_step, args, model, tokenizer, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_output_dir = args.output_dir
 
@@ -369,7 +390,25 @@ def evaluate(args, model, tokenizer, prefix=""):
 
     eval_loss = eval_loss / nb_eval_steps
     perplexity = torch.exp(torch.tensor(eval_loss))
+    
 
+    #########################################################
+    ##-----------------------------------------------------##
+    
+    p1 = str(perplexity)
+    p2 = p1.split("(")
+    p3 = p2[1]
+    p3=p3[:-1]
+    pf= float(p3)
+    p_str = "step: {st} eval_loss: {el:2.2f} perplexity: {pp:2.2f}".format(st=global_step, el=eval_loss, pp=pf) 
+    f = open("logs_eval.txt", "a", encoding="utf-8")
+    f.write(p_str + "\n")
+    f.close()
+    
+    ##-----------------------------------------------------##
+    #########################################################
+    
+    
     result = {
         "perplexity": perplexity
     }
@@ -451,7 +490,7 @@ def main():
                         help="Log every X updates steps.")
     parser.add_argument('--save_steps', type=int, default=1000,
                         help="Save checkpoint every X updates steps.")
-    parser.add_argument('--save_total_limit', type=int, default=2,
+    parser.add_argument('--save_total_limit', type=int, default=200,
                         help='Limit the total amount of checkpoints, delete the older checkpoints in the output_dir, does not delete by default')
     parser.add_argument("--eval_all_checkpoints", action='store_true',
                         help="Evaluate all checkpoints starting with the same prefix as model_name_or_path ending and ending with step number")
@@ -550,6 +589,14 @@ def main():
 
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
+        
+        ##################################################################################
+        # h_str = ("HERE: global_step = %s, average loss = %s", global_step, tr_loss)
+        # f = open("logs.txt", "a", encoding="utf-8")
+        # f.write(h_str + "\n")
+        # f.close()
+        
+        
 
 
     # Saving best-practices: if you use save_pretrained for the model and tokenizer, you can reload them using from_pretrained()
@@ -588,7 +635,7 @@ def main():
             
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
-            result = evaluate(args, model, tokenizer, prefix=prefix)
+            result = evaluate(global_step, args, model, tokenizer, prefix=prefix)
             result = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
             results.update(result)
 
